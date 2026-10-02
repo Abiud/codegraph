@@ -1,6 +1,7 @@
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 import { getNodeText, getChildByField } from '../tree-sitter-helpers';
 import type { LanguageExtractor } from '../tree-sitter-types';
+import { scriptRefName } from '../script-refs';
 
 // Shell (bash/zsh/sh) extraction. One grammar — tree-sitter-bash (vendored,
 // ABI 15) — serves all three dialects; the AST node types are shared.
@@ -13,7 +14,11 @@ import type { LanguageExtractor } from '../tree-sitter-types';
 //     `name:` child of type `variable_name` (not `identifier`), so variable
 //     extraction needs a shell branch in extractVariable (see tree-sitter.ts).
 //   - imports: no import statement — scripts pull files with the `source foo.sh`
-//     or `. foo.sh` commands, handled here as import nodes.
+//     or `. foo.sh` commands, handled here as import nodes plus a `script:`
+//     file reference (see extraction/script-refs.ts).
+//   - script runs: `bash x.sh`, `Rscript steps/run.R`, `python3 x.py`, and
+//     direct execution of a path (`./x.sh`, `"$ROOT/scripts/x.sh"`) emit a
+//     `calls` ref to the script FILE, which may be in another language.
 //   - calls: every bare word is a command (`command > name: command_name > word`),
 //     including external tools and builtins that have no symbol in this project.
 //     To avoid emitting thousands of dead call edges to `echo`, `ls`, etc.,
@@ -51,7 +56,15 @@ const BUILTIN_OR_EXTERNAL: Record<string, true> = {
   tail: true, tar: true, tee: true, touch: true, tr: true, uname: true,
   uniq: true, wc: true, which: true, whoami: true, xargs: true, yes: true,
   zcat: true, zip: true,
+  // interpreters and job wrappers — their script argument is linked instead
+  bash: true, sh: true, zsh: true, Rscript: true, R: true, python: true,
+  python3: true, nohup: true, sbatch: true, srun: true,
 };
+
+/** Commands whose first non-option argument is a script path they run. */
+const SCRIPT_RUNNERS = new Set([
+  'bash', 'sh', 'zsh', 'Rscript', 'python', 'python3', 'exec', 'nohup', 'sbatch', 'srun',
+]);
 
 /**
  * True if `word` is a plain command word (not an option like `-v` or flag) and
@@ -73,35 +86,38 @@ export function shellCommandName(node: SyntaxNode, source: string): string | nul
   return name && !(name in BUILTIN_OR_EXTERNAL) ? name : null;
 }
 
+/** Raw text of the command's name and its arguments, in order. */
+function commandParts(node: SyntaxNode, source: string): { name: SyntaxNode | null; args: string[] } {
+  const name = getChildByField(node, 'name');
+  const args: string[] = [];
+  for (const arg of node.childrenForFieldName('argument')) {
+    if (arg) args.push(getNodeText(arg, source).trim());
+  }
+  return { name, args };
+}
+
 /** If `node` (a command) is a `source foo.sh` / `. foo.sh` import, the target path. */
 export function shellImportTarget(node: SyntaxNode, source: string): string | null {
-  const cmd = getChildByField(node, 'name') ?? node.namedChildren[0];
-  if (!cmd) return null;
-  let wordNode = cmd.type === 'command_name' ? getChildByField(cmd, 'name') ?? cmd.namedChildren[0] : cmd;
-  if (!wordNode || wordNode.type !== 'word') return null;
-  const name = getNodeText(wordNode, source).trim();
-  if (name !== 'source' && name !== '.') return null;
-  // First argument is the file to pull in. The grammar emits it as a direct
-  // `word` child (`source ./lib/common.sh`) or wraps it in an `argument` node;
-  // take the first non-command-name named child and read its word text.
-  for (let i = 0; i < node.namedChildCount; i++) {
-    const child = node.namedChild(i);
-    if (!child) continue;
-    if (child === cmd || child.type === 'command_name') continue;
-    // Dig the target word out of a wrapping `argument`/redirect, else use the
-    // child itself when it's already a bare `word`.
-    let w = child.type === 'word' ? child : null;
-    if (!w) {
-      for (let j = 0; j < child.namedChildCount; j++) {
-        const c2 = child.namedChild(j);
-        if (c2 && c2.type === 'word') { w = c2; break; }
-      }
-    }
-    if (!w) continue;
-    const t = getNodeText(w, source).trim().replace(/^["']|["']$/g, '');
-    if (t) return t;
+  const { name, args } = commandParts(node, source);
+  const word = name ? getNodeText(name, source).trim() : '';
+  if (word !== 'source' && word !== '.') return null;
+  return args[0]?.replace(/["']/g, '') || null;
+}
+
+/**
+ * The `script:` reference for a script this command runs: an interpreter or
+ * job wrapper's first non-option argument (`bash x.sh`, `Rscript run.R`), or a
+ * command that is itself a path (`./x.sh`, `"$ROOT/scripts/x.sh"`).
+ */
+export function shellScriptRun(node: SyntaxNode, source: string): string | null {
+  const { name, args } = commandParts(node, source);
+  if (!name) return null;
+  const word = getNodeText(name, source).trim();
+  if (SCRIPT_RUNNERS.has(word)) {
+    const target = args.find((a) => !a.startsWith('-'));
+    return target ? scriptRefName(target) : null;
   }
-  return null;
+  return word.includes('/') ? scriptRefName(word) : null;
 }
 
 export const shellExtractor: LanguageExtractor = {
@@ -133,42 +149,39 @@ export const shellExtractor: LanguageExtractor = {
     if (node.type !== 'command') return false;
     const source = ctx.source;
 
-    // `source foo.sh` / `. foo.sh` → import edge to the pulled-in file.
+    const parentId = ctx.nodeStack[ctx.nodeStack.length - 1];
+    const reference = (referenceName: string, referenceKind: 'imports' | 'calls'): void => {
+      if (!parentId) return;
+      ctx.addUnresolvedReference({
+        fromNodeId: parentId,
+        referenceName,
+        referenceKind,
+        line: node.startPosition.row + 1,
+        column: node.startPosition.column,
+      });
+    };
+
+    // `source foo.sh` / `. foo.sh` → import node plus a file reference.
     const impTarget = shellImportTarget(node, source);
     if (impTarget) {
       const sig = getNodeText(node, source).trim().slice(0, 100);
-      const name = impTarget.split('/').pop() ?? impTarget;
-      ctx.createNode('import', name, node, { signature: sig });
-      // Reference the file by its basename so import resolution can link it.
-      if (ctx.nodeStack.length > 0) {
-        const parentId = ctx.nodeStack[ctx.nodeStack.length - 1];
-        if (parentId) {
-          ctx.addUnresolvedReference({
-            fromNodeId: parentId,
-            referenceName: impTarget.replace(/^.*\//, '').replace(/\.sh$/i, '') || name,
-            referenceKind: 'imports',
-            line: node.startPosition.row + 1,
-            column: node.startPosition.column,
-          });
-        }
-      }
+      ctx.createNode('import', impTarget.split('/').pop() || impTarget, node, { signature: sig });
+      const ref = scriptRefName(impTarget);
+      if (ref) reference(ref, 'imports');
+      return false;
+    }
+
+    // `bash x.sh` / `Rscript run.R` / `./x.sh` → a call to the script file.
+    const run = shellScriptRun(node, source);
+    if (run) {
+      reference(run, 'calls');
+      return false;
     }
 
     // A command whose first word could be a project-local symbol (function) —
     // emit a `calls` ref so codegraph_explore can trace function invocations.
     const callee = shellCommandName(node, source);
-    if (callee && ctx.nodeStack.length > 0) {
-      const parentId = ctx.nodeStack[ctx.nodeStack.length - 1];
-      if (parentId) {
-        ctx.addUnresolvedReference({
-          fromNodeId: parentId,
-          referenceName: callee,
-          referenceKind: 'calls',
-          line: node.startPosition.row + 1,
-          column: node.startPosition.column,
-        });
-      }
-    }
+    if (callee) reference(callee, 'calls');
 
     return false;
   },

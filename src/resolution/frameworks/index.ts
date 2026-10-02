@@ -35,6 +35,7 @@ import { expoRouterResolver } from './expo-router';
 import { fabricViewResolver } from './fabric';
 import { cicsResolver } from './cics';
 import { terraformResolver } from './terraform';
+import { scriptFilesResolver } from './script-files';
 
 /**
  * All registered framework resolvers
@@ -94,6 +95,7 @@ const FRAMEWORK_RESOLVERS: FrameworkResolver[] = [
   cicsResolver,
   // Terraform / OpenTofu — disambiguate var/local/module/resource refs to same-dir module
   terraformResolver,
+  scriptFilesResolver,
 ];
 
 /**

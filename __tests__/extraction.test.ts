@@ -2189,6 +2189,39 @@ deploy_all() {
     expect(calls).not.toContain('echo');
     expect(calls).not.toContain('mkdir');
   });
+
+  it('should reference sourced and executed script files by path tail', () => {
+    const code = [
+      'source "$SCRIPT_DIR/environment_metadata.sh"', // 1
+      '. ./lib/common.sh',                              // 2
+      'run_all() {',                                    // 3
+      '  bash "$ROOT/scripts/validate.sh" --strict',  // 4
+      '  Rscript --vanilla steps/de/run.R "$cfg"',    // 5
+      '  "${REPO_ROOT}/tests/run.sh"',                // 6
+      '  ./build.sh',                                   // 7
+      '  python3 "$DIR"/tools/report.py',             // 8
+      '  bash -c "$cmd"',                             // 9  dynamic
+      '  Rscript "$script"',                          // 10 dynamic
+      '}',
+    ].join('\n');
+    const result = extractFromSource('ci/main.sh', code);
+    const refs = result.unresolvedReferences.filter((r) => r.referenceName.startsWith('script:'));
+    const byKind = (kind: string) => refs.filter((r) => r.referenceKind === kind).map((r) => r.referenceName);
+    expect(byKind('imports').sort()).toEqual(['script:environment_metadata.sh', 'script:lib/common.sh']);
+    expect(byKind('calls').sort()).toEqual([
+      'script:build.sh',
+      'script:scripts/validate.sh',
+      'script:steps/de/run.R',
+      'script:tests/run.sh',
+      'script:tools/report.py',
+    ]);
+    const runAll = result.nodes.find((n) => n.name === 'run_all');
+    expect(refs.find((r) => r.referenceName === 'script:steps/de/run.R')?.fromNodeId).toBe(runAll?.id);
+    // Interpreters are not linked as calls themselves.
+    const plainCalls = result.unresolvedReferences.filter((r) => r.referenceKind === 'calls' && !r.referenceName.startsWith('script:'));
+    expect(plainCalls.map((r) => r.referenceName)).not.toEqual(expect.arrayContaining(['bash']));
+    expect(plainCalls.map((r) => r.referenceName)).not.toContain('Rscript');
+  });
 });
 
 describe('Swift Extraction', () => {
