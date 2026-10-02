@@ -111,6 +111,10 @@ export const EXTENSION_MAP: Record<string, Language> = {
   '.vue': 'vue',
   '.astro': 'astro',
   '.r': 'r',
+  // R Markdown / Quarto: the R extractor's preParse keeps only {r} chunks.
+  '.rmd': 'r',
+  '.rmarkdown': 'r',
+  '.qmd': 'r',
   '.pas': 'pascal',
   '.dpr': 'pascal',
   '.dpk': 'pascal',

@@ -834,6 +834,7 @@ is written):
 | Pascal / Delphi | `.pas`, `.dpr`, `.dpk`, `.lpr` | Full support (classes, records, interfaces, enums, DFM/FMX form files) |
 | Lua | `.lua` | Full support (functions, methods with receivers, local variables, `require` imports, call edges) |
 | R | `.R` `.r` | Full support (functions in every assignment form, S4/R5/R6 classes with methods, `library`/`require` imports, `source()` file references, call edges) |
+| R Markdown / Quarto | `.Rmd` `.Rmarkdown` `.qmd` | Executed `{r}` chunks, extracted as R at their document line numbers; prose, display-only code blocks, and other engines' chunks are skipped |
 | Luau | `.luau` | Full support (everything in Lua, plus `type`/`export type` aliases, typed signatures, and Roblox instance-path `require`) |
 | CFML | `.cfc`, `.cfm`, `.cfs` | Full support (tag-based `<cfcomponent>`/`<cffunction>` and bare-script `component { ... }` styles, `extends`/`implements`, embedded `<cfscript>` delegation, call edges) |
 | COBOL | `.cbl`, `.cob`, `.cpy` | Full support (programs, sections/paragraphs with PERFORM/GO TO call edges, CALL 'literal' cross-program calls, COPY copybook imports — including standalone `.cpy` files — DATA DIVISION records/fields/88-levels, EXEC CICS LINK/XCTL and EXEC SQL INCLUDE targets; fixed and free format) |

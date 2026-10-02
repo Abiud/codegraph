@@ -162,7 +162,49 @@ function extractClassMembers(classCall: SyntaxNode, classId: string, ctx: Extrac
   }
 }
 
+/** R Markdown / Quarto documents — R code lives only in executed `{r}` chunks. */
+const LITERATE_R_EXTENSIONS = /\.(?:rmd|rmarkdown|qmd)$/i;
+/** Opening fence of an executed R chunk: ```{r}, ```{r label, echo=FALSE}, ```{R}. */
+const R_CHUNK_OPEN = /^[ \t>]*(`{3,})\s*\{\s*[rR](?=[\s,}])[^}]*\}\s*$/;
+const FENCE_OPEN = /^[ \t>]*(`{3,}|~{3,})/;
+
+/**
+ * Blank every byte of an R Markdown / Quarto document outside its executed
+ * `{r}` chunks (fence lines included), keeping newlines so line and column
+ * numbers still point into the original document. Prose, YAML front matter,
+ * inline `r expr`, display-only ```r blocks, and other engines' chunks
+ * ({python}, {bash}, {ojs}) all become whitespace.
+ */
+export function blankNonRChunks(source: string, filePath?: string): string {
+  if (!filePath || !LITERATE_R_EXTENSIONS.test(filePath)) return source;
+  const lines = source.split('\n');
+  let closer: RegExp | null = null; // set while inside any fenced block
+  let keep = false; // true while inside an R chunk
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (closer) {
+      if (closer.test(line)) {
+        closer = null;
+        keep = false;
+      } else if (keep) {
+        continue;
+      }
+    } else {
+      const rOpen = R_CHUNK_OPEN.exec(line);
+      const open = rOpen ?? FENCE_OPEN.exec(line);
+      if (open) {
+        const fence = open[1]!;
+        closer = new RegExp(`^[ \\t>]*${fence[0] === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
+        keep = rOpen !== null;
+      }
+    }
+    lines[i] = line.replace(/[^\r]/g, ' ');
+  }
+  return lines.join('\n');
+}
+
 export const rExtractor: LanguageExtractor = {
+  preParse: blankNonRChunks,
   functionTypes: [], // named functions are assignments — handled in visitNode
   classTypes: [],
   methodTypes: [],

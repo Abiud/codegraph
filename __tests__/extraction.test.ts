@@ -10791,6 +10791,75 @@ GeomPoint <- ggproto("GeomPoint", Geom,
       expect(result.nodes.find((n) => n.name === 'GeomPoint' && n.kind === 'variable')).toBeUndefined();
     });
   });
+
+  describe('R Markdown and Quarto documents', () => {
+    const doc = [
+      '---',                                  // 1
+      'title: "Report"',                      // 2
+      'params:',                              // 3
+      '  fake <- function() 1',               // 4  YAML, not R
+      '---',                                  // 5
+      '',                                     // 6
+      'Prose mentions prose_fn(x) and `r inline_fn()`.', // 7
+      '',                                     // 8
+      '```{r setup, include=FALSE}',          // 9
+      'source("helpers.R")',                  // 10
+      'library(dplyr)',                       // 11
+      '```',                                  // 12
+      '',                                     // 13
+      '```r',                                 // 14 display-only block
+      'shown_fn <- function() 2',             // 15
+      '```',                                  // 16
+      '',                                     // 17
+      '```{python}',                          // 18
+      'def py_fn(): pass',                    // 19
+      '```',                                  // 20
+      '',                                     // 21
+      '````{r}',                              // 22
+      '#| label: fit',                        // 23
+      'fit_model <- function(d) {',           // 24
+      '  prep(d)',                            // 25
+      '  # ```',                              // 26 inside the chunk
+      '}',                                    // 27
+      '````',                                 // 28
+      '',                                     // 29
+      '  ```{R, echo = FALSE}',               // 30 indented, upper-case engine
+      '  plot_it <- function() fit_model(1)', // 31
+      '  ```',                                // 32
+    ].join('\n');
+
+    it('detects .qmd, .Rmd, and .Rmarkdown as R', () => {
+      expect(detectLanguage('report.qmd')).toBe('r');
+      expect(detectLanguage('analysis.Rmd')).toBe('r');
+      expect(detectLanguage('notes.rmd')).toBe('r');
+      expect(detectLanguage('post.Rmarkdown')).toBe('r');
+    });
+
+    it('extracts only executed {r} chunks, at their document line numbers', () => {
+      for (const file of ['report.qmd', 'analysis.Rmd']) {
+        const result = extractFromSource(file, doc);
+        const funcs = result.nodes.filter((n) => n.kind === 'function');
+        expect(funcs.map((n) => n.name).sort()).toEqual(['fit_model', 'plot_it']);
+        expect(funcs.find((n) => n.name === 'fit_model')?.startLine).toBe(24);
+        expect(funcs.find((n) => n.name === 'plot_it')?.startLine).toBe(31);
+        const imports = result.nodes.filter((n) => n.kind === 'import').map((n) => n.name);
+        expect(imports).toEqual(expect.arrayContaining(['helpers.R', 'dplyr']));
+        const calls = result.unresolvedReferences.filter((r) => r.referenceKind === 'calls');
+        const names = calls.map((r) => r.referenceName);
+        expect(names).toEqual(expect.arrayContaining(['prep', 'fit_model']));
+        for (const absent of ['fake', 'prose_fn', 'inline_fn', 'shown_fn', 'py_fn']) {
+          expect(names).not.toContain(absent);
+          expect(result.nodes.find((n) => n.name === absent)).toBeUndefined();
+        }
+        expect(calls.find((r) => r.referenceName === 'prep')?.line).toBe(25);
+      }
+    });
+
+    it('leaves plain .R sources untouched by the chunk filter', () => {
+      const result = extractFromSource('plain.R', 'f <- function() 1\n');
+      expect(result.nodes.some((n) => n.name === 'f' && n.kind === 'function')).toBe(true);
+    });
+  });
 });
 
 // =============================================================================
