@@ -15,6 +15,8 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### New Features
 
 - R Markdown and Quarto documents (`.Rmd`, `.Rmarkdown`, `.qmd`) are indexed: code in executed `{r}` chunks joins the R graph, so report calls to package and `source()`d helper functions show up as callers.
+- **Shell scripts are indexed — bash, zsh and sh.** Functions, variables, constants, the files a script pulls in with `source`, and calls between your own functions (external tools like `echo` or `grep` stay unlinked) now appear in search, callers/callees and impact.
+- Scripts that run or load other scripts link to them, across languages: `source`, `bash x.sh`, `Rscript x.R`, `python3 x.py` and `./x.sh` in shell, and `source()` in R and Quarto (including `file.path(dir, "x.R")` paths), so "what runs this script" is answered from the graph.
 
 
 ## [1.6.2] - 2026-10-03
@@ -243,8 +245,6 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Upgrading:** re-index your projects after this release — several fixes and the new navigation links are written while indexing.
 
 ### New Features
-
-- **Shell scripts are indexed — bash, zsh and sh.** Functions, variables, constants, the files a script pulls in with `source`, and calls between your own functions (external tools like `echo` or `grep` stay unlinked) now appear in search, callers/callees and impact.
 
 - **Codex and Astra read project guidance from `AGENTS.md`.** The canonical agent guide now lives in `AGENTS.md` (with a nested `docs/AGENTS.md` for long validation notes); `CLAUDE.md` is a thin `@AGENTS.md` wrapper for Claude Code. Codex/Astra no longer miss the old CLAUDE-only instructions.
 
