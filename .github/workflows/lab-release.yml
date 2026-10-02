@@ -1,0 +1,113 @@
+name: Lab release
+
+# Builds the lab fork's self-contained bundles and publishes them as a GitHub
+# Release. Triggered by pushing a tag `v<package.json version>`, where the
+# version carries a `-lab.N` suffix (e.g. v1.6.1-lab.1). Unlike release.yml it
+# never publishes to npm, never pushes to a branch, and builds only the
+# macOS and Linux targets the lab's Pi installers consume.
+on:
+  push:
+    tags: ['v*-lab.*']
+
+permissions:
+  contents: write      # create the GitHub Release
+  id-token: write      # Sigstore signing for build-provenance attestations
+  attestations: write
+
+jobs:
+  kernel:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            targets: aarch64-apple-darwin x86_64-apple-darwin
+          - runner: ubuntu-22.04 # oldest glibc runner → widest compatibility
+            targets: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            targets: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build kernel prebuilds
+        shell: bash
+        run: |
+          for t in ${{ matrix.targets }}; do
+            bash scripts/build-kernel.sh --target "$t"
+          done
+          ls -R codegraph-kernel/prebuilds
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-${{ matrix.runner }}
+          path: codegraph-kernel/prebuilds/
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: kernel
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+
+      - name: Check the tag matches package.json
+        id: ver
+        run: |
+          V="$(node -p "require('./package.json').version")"
+          if [ "${GITHUB_REF_NAME}" != "v${V}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match package.json version ${V}"
+            exit 1
+          fi
+          echo "version=${V}" >> "$GITHUB_OUTPUT"
+
+      - name: Download kernel prebuilds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: kernel-*
+          merge-multiple: true
+          path: release/kernel/
+
+      - name: Test suite against the linux-x64 kernel
+        run: |
+          mkdir -p codegraph-kernel/prebuilds/linux-x64
+          cp release/kernel/linux-x64/codegraph-kernel.node codegraph-kernel/prebuilds/linux-x64/
+          npm run build
+          CODEGRAPH_KERNEL_EXPECT=1 npx vitest run --project engine
+
+      - name: Build platform bundles
+        run: |
+          for t in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            bash scripts/build-bundle.sh "$t"
+          done
+          ls -lh release
+
+      - name: Pack npm tarballs (shim + platform packages, release-URL dependencies)
+        run: bash scripts/lab-pack-npm.sh "${GITHUB_REF_NAME}" "${GITHUB_REPOSITORY}"
+
+      - name: Generate SHA256SUMS
+        run: |
+          ( cd release && sha256sum codegraph-*.tar.gz colbymchenry-codegraph-*.tgz > SHA256SUMS )
+          cat release/SHA256SUMS
+
+      - name: Attest build provenance
+        # Verify a download with: gh attestation verify <file> -R Abiud/codegraph
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            release/codegraph-*.tar.gz
+            release/colbymchenry-codegraph-*.tgz
+            release/SHA256SUMS
+
+      - name: Release notes
+        run: |
+          node scripts/extract-release-notes.mjs Unreleased > notes.md
+          test -s notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" release/codegraph-*.tar.gz release/colbymchenry-codegraph-*.tgz release/SHA256SUMS \
+            --title "${GITHUB_REF_NAME}" --notes-file notes.md --prerelease
