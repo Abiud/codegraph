@@ -12,6 +12,10 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### New Features
+
+- R Markdown and Quarto documents (`.Rmd`, `.Rmarkdown`, `.qmd`) are indexed: code in executed `{r}` chunks joins the R graph, so report calls to package and `source()`d helper functions show up as callers.
+
 
 ## [1.6.1] - 2026-09-29
 
