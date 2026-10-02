@@ -13523,3 +13523,81 @@ describe('C++ COM interface declarations (#1519)', () => {
     expect(Buffer.byteLength(expected)).toBe(Buffer.byteLength(source));
   });
 });
+
+describe('Nextflow Extraction', () => {
+  const pipeline = [
+    "include { FASTQC; MULTIQC as MQC } from './modules/fastqc'",   // 1
+    "include { ALIGN } from '../subworkflows/align/main.nf'",       // 2
+    "include { validateParameters } from 'plugin/nf-schema'",       // 3
+    'def helper(x) { return x * 2 }',                               // 4
+    'process RUN_DE {',                                             // 5
+    "    label 'big'",                                              // 6
+    '    input:',                                                   // 7
+    "    path code, stageAs: 'code'",                               // 8
+    '    script:',                                                  // 9
+    '    """',                                                      // 10
+    '    Rscript --vanilla code/de/run.R --x 1',                    // 11
+    '    python3 ${projectDir}/bin/tool.py',                        // 12
+    '    run_de.R --y 2',                                           // 13
+    '    """',                                                      // 14
+    '}',                                                            // 15
+    'process TPL {',                                                // 16
+    '    script:',                                                  // 17
+    "    template 'de.sh'",                                         // 18
+    '}',                                                            // 19
+    'workflow ALIGN_ALL {',                                         // 20
+    '    take:',                                                    // 21
+    '    reads',                                                    // 22
+    '    main:',                                                    // 23
+    '    FASTQC(reads)',                                            // 24
+    '    MQC(FASTQC.out.zip.collect())',                            // 25
+    '    x = helper(1)',                                            // 26
+    '}',                                                            // 27
+    'workflow {',                                                   // 28
+    '    ALIGN_ALL(Channel.fromPath(params.reads))',                // 29
+    '}',                                                            // 30
+  ].join('\n');
+
+  it('detects .nf files as Nextflow', () => {
+    expect(detectLanguage('main.nf')).toBe('nextflow');
+    expect(isLanguageSupported('nextflow')).toBe(true);
+  });
+
+  it('extracts processes, workflows, functions, and includes', () => {
+    const result = extractFromSource('workflows/main.nf', pipeline);
+    const funcs = result.nodes.filter((n) => n.kind === 'function');
+    expect(funcs.map((n) => n.name).sort()).toEqual(['ALIGN_ALL', 'RUN_DE', 'TPL', 'helper']);
+    expect(funcs.find((n) => n.name === 'RUN_DE')?.startLine).toBe(5);
+    const imports = result.nodes.filter((n) => n.kind === 'import').map((n) => n.name);
+    expect(imports).toEqual(expect.arrayContaining(['FASTQC', 'MQC', 'ALIGN', 'validateParameters']));
+    const moduleRefs = result.unresolvedReferences
+      .filter((r) => r.referenceKind === 'imports')
+      .map((r) => r.referenceName)
+      .sort();
+    expect(moduleRefs).toEqual(['script:../subworkflows/align/main.nf', 'script:modules/fastqc.nf']);
+  });
+
+  it('records process and alias calls, skipping directives', () => {
+    const result = extractFromSource('workflows/main.nf', pipeline);
+    const from = (name: string) => result.nodes.find((n) => n.name === name && n.kind === 'function')?.id;
+    const calls = result.unresolvedReferences.filter((r) => r.referenceKind === 'calls');
+    const callsFrom = (id: string | undefined) => calls.filter((r) => r.fromNodeId === id).map((r) => r.referenceName);
+    expect(callsFrom(from('ALIGN_ALL'))).toEqual(expect.arrayContaining(['FASTQC', 'MULTIQC', 'helper']));
+    expect(callsFrom(from('ALIGN_ALL'))).not.toContain('MQC');
+    expect(calls.find((r) => r.referenceName === 'ALIGN_ALL')?.fromNodeId).toBe('file:workflows/main.nf');
+    for (const directive of ['label', 'path']) expect(calls.map((r) => r.referenceName)).not.toContain(directive);
+  });
+
+  it('links a process to the scripts its script block runs', () => {
+    const result = extractFromSource('workflows/main.nf', pipeline);
+    const runDe = result.nodes.find((n) => n.name === 'RUN_DE')?.id;
+    const tpl = result.nodes.find((n) => n.name === 'TPL')?.id;
+    const scriptCalls = (id: string | undefined) =>
+      result.unresolvedReferences
+        .filter((r) => r.fromNodeId === id && r.referenceName.startsWith('script:'))
+        .map((r) => r.referenceName)
+        .sort();
+    expect(scriptCalls(runDe)).toEqual(['script:bin/tool.py', 'script:code/de/run.R', 'script:run_de.R']);
+    expect(scriptCalls(tpl)).toEqual(['script:templates/de.sh']);
+  });
+});

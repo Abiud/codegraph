@@ -51,6 +51,7 @@ const WASM_GRAMMAR_FILES: Record<GrammarLanguage, string> = {
   arkts: 'tree-sitter-arkts.wasm',
   nix: 'tree-sitter-nix.wasm',
   shell: 'tree-sitter-bash.wasm',
+  nextflow: 'tree-sitter-nextflow.wasm',
 };
 
 /**
@@ -180,6 +181,8 @@ export const EXTENSION_MAP: Record<string, Language> = {
   '.sh': 'shell',
   '.zsh': 'shell',
   '.bash': 'shell',
+  // Nextflow DSL2 pipelines (nextflow-io/tree-sitter-nextflow, vendored).
+  '.nf': 'nextflow',
 };
 
 /** MPEG transport stream: fixed 188-byte packets, each opening with 0x47. */
@@ -361,7 +364,7 @@ export async function initGrammars(): Promise<void> {
  */
 const VENDORED_WASM_LANGS: ReadonlySet<GrammarLanguage> = new Set([
   'pascal', 'scala', 'lua', 'luau', 'csharp', 'r', 'cfml', 'cfscript', 'cfquery',
-  'cobol', 'vbnet', 'erlang', 'terraform', 'arkts', 'nix', 'shell',
+  'cobol', 'vbnet', 'erlang', 'terraform', 'arkts', 'nix', 'shell', 'nextflow',
   'typescript', 'tsx', 'javascript', 'jsx', 'java', 'python', 'go',
   // R7a (C/C++ kernel port prep): tree-sitter-c v0.24.2 (b780e47) +
   // tree-sitter-cpp v0.23.4 (f41e1a0), parser.c/scanner.c sha-matched against
@@ -778,6 +781,7 @@ export function getLanguageDisplayName(language: Language): string {
     erlang: 'Erlang',
     terraform: 'Terraform',
     shell: 'Shell',
+    nextflow: 'Nextflow',
     arkts: 'ArkTS',
     unknown: 'Unknown',
   };

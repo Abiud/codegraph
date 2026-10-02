@@ -17,6 +17,7 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - R Markdown and Quarto documents (`.Rmd`, `.Rmarkdown`, `.qmd`) are indexed: code in executed `{r}` chunks joins the R graph, so report calls to package and `source()`d helper functions show up as callers.
 - **Shell scripts are indexed — bash, zsh and sh.** Functions, variables, constants, the files a script pulls in with `source`, and calls between your own functions (external tools like `echo` or `grep` stay unlinked) now appear in search, callers/callees and impact.
 - Scripts that run or load other scripts link to them, across languages: `source`, `bash x.sh`, `Rscript x.R`, `python3 x.py` and `./x.sh` in shell, and `source()` in R and Quarto (including `file.path(dir, "x.R")` paths), so "what runs this script" is answered from the graph.
+- **Nextflow pipelines are indexed.** Processes, workflows, functions and `include` statements (aliases included) join the graph, and each process links to the scripts its `script:` block runs (`Rscript`, `python3`, `bash`, `bin/` scripts, `template`), so a flow can be followed from a workflow into the R or Python code it runs.
 
 
 ## [1.6.1] - 2026-09-29
