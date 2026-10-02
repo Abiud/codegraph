@@ -9,6 +9,7 @@ import * as path from 'path';
 import { Language, Node } from '../types';
 import { UnresolvedRef, ResolvedRef, ResolutionContext, ImportMapping, ReExport } from './types';
 import { applyAliases } from './path-aliases';
+import { isNotebookPath, notebookCodeView } from '../extraction/notebook';
 import { extractLocalExportAliases } from './alias-binding';
 import { resolveWorkspaceImport } from './workspace-packages';
 import {
@@ -893,11 +894,12 @@ function resolvePhpIncludePath(
  * Extract import mappings from a file
  */
 export function extractImportMappings(
-  _filePath: string,
+  filePath: string,
   content: string,
   language: Language
 ): ImportMapping[] {
   const mappings: ImportMapping[] = [];
+  if (isNotebookPath(filePath)) content = notebookCodeView(content, filePath);
 
   if (language === 'typescript' || language === 'javascript' || language === 'tsx' || language === 'jsx' || language === 'arkts') {
     mappings.push(...extractJSImports(content));
@@ -1037,13 +1039,18 @@ function extractJSImports(content: string): ImportMapping[] {
 function extractPythonImports(content: string): ImportMapping[] {
   const mappings: ImportMapping[] = [];
 
-  // from X import Y
-  const fromImportRegex = /from\s+([\w.]+)\s+import\s+([^#\n]+)/g;
+  // from X import Y / from X import (Y, Z as W) — the parenthesized form may
+  // span lines, as package `__init__.py` re-export lists usually do.
+  const fromImportRegex = /from\s+([\w.]+)\s+import\s+(\([^)]*\)|[^#\n]+)/g;
   let match;
 
   while ((match = fromImportRegex.exec(content)) !== null) {
     const [, source, imports] = match;
-    const names = imports!.split(',').map((s) => s.trim());
+    const names = imports!
+      .replace(/#[^\n]*/g, '')
+      .replace(/[()]/g, '')
+      .split(',')
+      .map((s) => s.trim());
 
     for (const name of names) {
       const aliasMatch = name.match(/(\w+)\s+as\s+(\w+)/);
@@ -1067,8 +1074,8 @@ function extractPythonImports(content: string): ImportMapping[] {
     }
   }
 
-  // import X
-  const importRegex = /^import\s+([\w.]+)(?:\s+as\s+(\w+))?/gm;
+  // import X — also indented, as in marimo cells and notebook code blocks.
+  const importRegex = /^[ \t]*import\s+([\w.]+)(?:\s+as\s+(\w+))?/gm;
   while ((match = importRegex.exec(content)) !== null) {
     const [, source, alias] = match;
     const localName = alias || source!.split('.').pop()!;
@@ -1856,6 +1863,42 @@ function resolvePythonModuleMember(
     if (target) {
       return { original: ref, targetNodeId: target.id, confidence: 0.85, resolvedBy: 'import' };
     }
+    const reexported = followPythonReexport(resolvedPath, member, context);
+    if (reexported) {
+      return { original: ref, targetNodeId: reexported.id, confidence: 0.85, resolvedBy: 'import' };
+    }
+  }
+  return null;
+}
+
+/**
+ * The definition behind a name a Python module re-exports — the package
+ * `__init__.py` idiom `from pkg.components import report_header` (or
+ * `from .components import …`) that makes `pkg.report_header` public. Follows
+ * up to three re-export hops; returns null when the chain leaves the project.
+ */
+function followPythonReexport(
+  moduleFile: string,
+  member: string,
+  context: ResolutionContext,
+  depth = 0
+): Node | null {
+  if (depth >= 3) return null;
+  for (const imp of context.getImportMappings(moduleFile, 'python')) {
+    if (imp.localName !== member || imp.isNamespace) continue;
+    const file =
+      resolveImportPath(imp.source, moduleFile, 'python', context) ??
+      findPythonModuleFile(imp.source, context, moduleFile)?.filePath ??
+      null;
+    if (!file || file === moduleFile) continue;
+    const def = context.getNodesInFile(file).find(
+      (n) =>
+        n.name === imp.exportedName &&
+        (n.kind === 'function' || n.kind === 'class' || n.kind === 'variable' || n.kind === 'constant')
+    );
+    if (def) return def;
+    const deeper = followPythonReexport(file, imp.exportedName, context, depth + 1);
+    if (deeper) return deeper;
   }
   return null;
 }

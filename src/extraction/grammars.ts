@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as fsp from 'fs/promises';
 import { Parser, Language as WasmLanguage } from 'web-tree-sitter';
 import { Language } from '../types';
+import { notebookLanguage } from './notebook';
 
 export type GrammarLanguage = Exclude<Language, 'svelte' | 'vue' | 'astro' | 'liquid' | 'razor' | 'yaml' | 'twig' | 'xml' | 'properties' | 'unknown'>;
 
@@ -117,6 +118,8 @@ export const EXTENSION_MAP: Record<string, Language> = {
   '.rmd': 'r',
   '.rmarkdown': 'r',
   '.qmd': 'r',
+  // Jupyter notebooks: Python unless the kernel is R (see detectLanguage).
+  '.ipynb': 'python',
   '.pas': 'pascal',
   '.dpr': 'pascal',
   '.dpk': 'pascal',
@@ -560,6 +563,11 @@ export function detectLanguage(filePath: string, source?: string, overrides?: Re
   // top-level expressions (last-dot ext `.src` is too generic for the map).
   if (isErlangAppFile(filePath)) return 'erlang';
   const lang = (overrides && overrides[ext]) || EXTENSION_MAP[ext] || 'unknown';
+
+  // A notebook's language is its kernel's; other kernels (Julia, …) are skipped.
+  if (ext === '.ipynb' && source !== undefined && !(overrides && overrides[ext])) {
+    return notebookLanguage(source) ?? 'unknown';
+  }
 
   // .h files could be C, C++, or Objective-C — check source content
   if (lang === 'c' && ext === '.h' && source) {

@@ -800,6 +800,8 @@ export function preloadLanguagesForFiles(
   overrides?: Record<string, Language>
 ): Language[] {
   const languages = [...new Set(files.map((f) => detectLanguage(f, undefined, overrides)))];
+  // A notebook's kernel is only known from its content; R notebooks need R.
+  if (files.some((f) => /\.ipynb$/i.test(f)) && !languages.includes('r')) languages.push('r');
   if (languages.includes('c')) {
     for (const ambiguous of ['cpp', 'objc'] as const) {
       if (!languages.includes(ambiguous)) languages.push(ambiguous);

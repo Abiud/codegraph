@@ -82,7 +82,7 @@ export const scriptFilesResolver: FrameworkResolver = {
   // R's `source()` paths are scanned here, not in the R extractor, because the
   // native kernel parses R and only framework extract hooks run on its output.
   extract(filePath, content) {
-    if (detectLanguage(filePath) !== 'r') return { nodes: [], references: [] };
+    if (detectLanguage(filePath, content) !== 'r') return { nodes: [], references: [] };
     return { nodes: [], references: rSourceScriptRefs(filePath, content) };
   },
 

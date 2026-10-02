@@ -1,7 +1,10 @@
 import { getNodeText, getChildByField } from '../tree-sitter-helpers';
 import type { LanguageExtractor } from '../tree-sitter-types';
+import { notebookCodeView } from '../notebook';
 
 export const pythonExtractor: LanguageExtractor = {
+  // Jupyter notebooks: code cells at their .ipynb line numbers (extraction/notebook.ts).
+  preParse: notebookCodeView,
   functionTypes: ['function_definition'],
   classTypes: ['class_definition'],
   methodTypes: ['function_definition'], // Methods are functions inside classes
