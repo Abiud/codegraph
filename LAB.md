@@ -6,6 +6,9 @@
 - shell (bash/zsh/sh), from upstream PR #1912,
 - Nextflow DSL2 (`.nf`), on the vendored nextflow-io grammar
   (`docs/grammars/tree-sitter-nextflow.md`),
+- Jupyter `.ipynb` code cells (Python and R kernels) and marimo cell calls
+  through modules imported in other cells; Python package `__init__.py`
+  re-exports followed to their definitions,
 - script-file links across languages (`source`, `bash x.sh`, `Rscript x.R`,
   R `source()`, Nextflow `script:` blocks) via the `script-files` resolver.
 

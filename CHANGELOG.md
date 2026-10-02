@@ -18,6 +18,12 @@ and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Shell scripts are indexed — bash, zsh and sh.** Functions, variables, constants, the files a script pulls in with `source`, and calls between your own functions (external tools like `echo` or `grep` stay unlinked) now appear in search, callers/callees and impact.
 - Scripts that run or load other scripts link to them, across languages: `source`, `bash x.sh`, `Rscript x.R`, `python3 x.py` and `./x.sh` in shell, and `source()` in R and Quarto (including `file.path(dir, "x.R")` paths), so "what runs this script" is answered from the graph.
 - **Nextflow pipelines are indexed.** Processes, workflows, functions and `include` statements (aliases included) join the graph, and each process links to the scripts its `script:` block runs (`Rscript`, `python3`, `bash`, `bin/` scripts, `template`), so a flow can be followed from a workflow into the R or Python code it runs.
+- **Jupyter notebooks are indexed.** Code cells of Python and R notebooks (`.ipynb`) join the graph at their line numbers in the notebook; markdown, outputs, and IPython magics are skipped.
+- **marimo notebooks link to the code they use.** A cell's calls through a module another cell imported (`lk.volcano(...)` after `import labkit as lk`) now resolve.
+
+### Fixes
+
+- Python calls through a package's re-exports (`import pkg; pkg.func()` where `pkg/__init__.py` has `from pkg.module import func`) resolve to the definition, including parenthesized multi-line import lists.
 
 
 ## [1.6.2] - 2026-10-03

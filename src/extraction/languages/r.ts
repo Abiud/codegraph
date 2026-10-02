@@ -1,6 +1,7 @@
 import type { Node as SyntaxNode } from 'web-tree-sitter';
 import { getNodeText, getChildByField } from '../tree-sitter-helpers';
 import type { LanguageExtractor, ExtractorContext } from '../tree-sitter-types';
+import { notebookCodeView } from '../notebook';
 
 /**
  * R language extractor (#828).
@@ -204,7 +205,8 @@ export function blankNonRChunks(source: string, filePath?: string): string {
 }
 
 export const rExtractor: LanguageExtractor = {
-  preParse: blankNonRChunks,
+  // R Markdown / Quarto {r} chunks, and R-kernel Jupyter notebooks' code cells.
+  preParse: (source, filePath) => blankNonRChunks(notebookCodeView(source, filePath), filePath),
   functionTypes: [], // named functions are assignments — handled in visitNode
   classTypes: [],
   methodTypes: [],

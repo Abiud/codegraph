@@ -14,6 +14,7 @@
 
 import type { UnresolvedRef } from '../resolution/types';
 import { blankNonRChunks } from './languages/r';
+import { notebookCodeView } from './notebook';
 import { scriptRefName } from './script-refs';
 
 const SOURCE_CALL = /(?<![\w.$])(?:base::)?(?:source|sys\.source)\s*\(\s*/g;
@@ -60,7 +61,7 @@ function sourcePath(argText: string): string | null {
 /** One `imports` reference per static `source()` path, attributed to the file. */
 export function rSourceScriptRefs(filePath: string, source: string): UnresolvedRef[] {
   const refs: UnresolvedRef[] = [];
-  const code = blankNonRChunks(source, filePath);
+  const code = blankNonRChunks(notebookCodeView(source, filePath), filePath);
   SOURCE_CALL.lastIndex = 0;
   for (let m = SOURCE_CALL.exec(code); m; m = SOURCE_CALL.exec(code)) {
     const lineStart = code.lastIndexOf('\n', m.index) + 1;
