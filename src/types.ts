@@ -119,6 +119,7 @@ export const LANGUAGES = [
   'erlang',
   'terraform',
   'shell',
+  'nextflow',
   'unknown',
 ] as const;
 

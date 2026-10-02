@@ -38,22 +38,42 @@ function sharedPrefix(a: string, b: string): number {
   return i;
 }
 
-/** The indexed file a script path tail names, preferring the referrer's directory. */
-export function resolveScriptFile(tail: string, fromFile: string, context: ResolutionContext): string | null {
-  const besideReferrer = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), tail));
-  if (!besideReferrer.startsWith('../') && context.fileExists(besideReferrer)) return besideReferrer;
-  const clean = tail.replace(/^(?:\.\.\/)+/, '');
-  const candidates = (basenameIndex(context).get(clean.split('/').pop() ?? '') ?? []).filter(
-    (f) => f === clean || f.endsWith('/' + clean)
+/** Indexed files whose path ends with `tail`, nearest the referrer first. */
+function suffixMatches(tail: string, fromFile: string, context: ResolutionContext): string[] {
+  const matches = (basenameIndex(context).get(tail.split('/').pop() ?? '') ?? []).filter(
+    (f) => f === tail || f.endsWith('/' + tail)
   );
-  if (candidates.length === 0) return null;
-  candidates.sort((x, y) => sharedPrefix(y, fromFile) - sharedPrefix(x, fromFile));
-  return candidates[0] ?? null;
+  return matches.sort((x, y) => sharedPrefix(y, fromFile) - sharedPrefix(x, fromFile));
+}
+
+/**
+ * The indexed file a script path tail names. Tried in order: the path beside
+ * the referrer; the tail as a path suffix; then the tail with leading
+ * directories dropped one at a time, because runners stage code under another
+ * name (`Rscript code/de/run.R` where `code` is the staged `steps/` folder).
+ * A Nextflow module path also tries `<dir>/main.nf`. Ties go to the file
+ * sharing the longest path prefix with the referrer.
+ */
+export function resolveScriptFile(tail: string, fromFile: string, context: ResolutionContext): string | null {
+  const forms = [tail];
+  if (tail.endsWith('.nf')) forms.push(tail.replace(/\.nf$/, '/main.nf'));
+  for (const form of forms) {
+    const besideReferrer = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), form));
+    if (!besideReferrer.startsWith('../') && context.fileExists(besideReferrer)) return besideReferrer;
+  }
+  for (const form of forms) {
+    const segments = form.replace(/^(?:\.\.\/)+/, '').split('/');
+    for (let i = 0; i < segments.length; i++) {
+      const match = suffixMatches(segments.slice(i).join('/'), fromFile, context)[0];
+      if (match) return match;
+    }
+  }
+  return null;
 }
 
 export const scriptFilesResolver: FrameworkResolver = {
   name: 'script-files',
-  languages: ['shell', 'r'],
+  languages: ['shell', 'r', 'nextflow'],
 
   detect: () => true,
 
